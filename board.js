@@ -12,7 +12,7 @@ class Board {
         for (let i = 0; i < this.size; i++) {
             const row = [];
             for (let j = 0; j < this.size; j++) {
-                row.push({ entity: window.EMPTY, covered: true, hint: 0 });
+                row.push({ entity: window.EMPTY, covered: true, hint: 0, flagged: false });
             }
             grid.push(row);
         }
@@ -114,6 +114,28 @@ class Board {
                     window.cx.fillRect(x + 2, y + 2, this.cellSize - 4, this.cellSize - 4);
                     window.cx.fillStyle = "rgba(255,255,255,0.1)";
                     window.cx.fillRect(x + 2, y + 2, this.cellSize - 4, (this.cellSize - 4) / 2);
+                    
+                    if (cell.flagged) {
+                        const centerX = x + this.cellSize / 2;
+                        const centerY = y + this.cellSize / 2;
+                        
+                        window.cx.fillStyle = window.COLORS.flag;
+                        window.cx.beginPath();
+                        // Draw a simple flag triangle
+                        window.cx.moveTo(centerX - 5, centerY - 8);
+                        window.cx.lineTo(centerX + 8, centerY - 2);
+                        window.cx.lineTo(centerX - 5, centerY + 4);
+                        window.cx.closePath();
+                        window.cx.fill();
+                        
+                        // Pole
+                        window.cx.strokeStyle = "#fff";
+                        window.cx.lineWidth = 2;
+                        window.cx.beginPath();
+                        window.cx.moveTo(centerX - 5, centerY - 8);
+                        window.cx.lineTo(centerX - 5, centerY + 8);
+                        window.cx.stroke();
+                    }
                 }
             }
         }

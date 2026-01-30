@@ -1,4 +1,13 @@
 // Input Handling — uses window.game (Game instance from index.js)
+// Add mouse support for flagging
+window.gameCanvas.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    if (window.game) {
+        // e.offsetX/Y gives coordinates relative to canvas
+        window.game.toggleFlag(e.offsetX, e.offsetY);
+    }
+});
+
 document.addEventListener('keydown', (e) => {
     if (e.repeat) return;
 

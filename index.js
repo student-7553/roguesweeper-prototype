@@ -48,6 +48,7 @@ class Game {
         if (!this.board.valid(x, y)) return;
         const cell = this.board.getCell(x, y);
         if (!cell.covered) return;
+        if (cell.flagged) return; // Don't auto-reveal flagged cells
 
         cell.covered = false;
         const start = (window.size / 2) - (this.board.cellSize * (this.board.size / 2));
@@ -57,12 +58,63 @@ class Game {
         // Reduced reveal sound volume/frequency could be good here if it's too much, but keeping as is
         window.SoundManager.playReveal();
 
-        if (cell.entity === window.EMPTY && cell.hint === 0) {
-            for (let dy = -1; dy <= 1; dy++) {
-                for (let dx = -1; dx <= 1; dx++) {
-                    if (dx === 0 && dy === 0) continue;
-                    this.reveal(x + dx, y + dy);
+        if (cell.entity === window.ENEMY) {
+            // Find enemy and stun it
+            const enemy = this.enemies.find(e => {
+                if (e.getOccupiedCells) {
+                    return e.getOccupiedCells().some(c => c.x === x && c.y === y);
                 }
+                return e.x === x && e.y === y;
+            });
+            if (enemy) enemy.stunned = true;
+        }
+
+        if (cell.entity === window.EMPTY && cell.hint === 0) {
+            this.revealNeighbors(x, y);
+        }
+    }
+
+    revealNeighbors(x, y) {
+        for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+                if (dx === 0 && dy === 0) continue;
+                this.reveal(x + dx, y + dy);
+            }
+        }
+    }
+
+    // Check neighbors of a modified cell (x, y) to see if any ALREADY REVEALED cells
+    // have become 0-hint and should trigger a cascade.
+    checkCascade(x, y) {
+         for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+                if (dx === 0 && dy === 0) continue;
+                const nx = x + dx;
+                const ny = y + dy;
+                if (this.board.valid(nx, ny)) {
+                    const neighbor = this.board.getCell(nx, ny);
+                    // If neighbor is revealed, empty, and now has 0 hint...
+                    if (!neighbor.covered && neighbor.entity === window.EMPTY && neighbor.hint === 0) {
+                        // ...it should try to reveal ITS neighbors
+                        this.revealNeighbors(nx, ny);
+                    }
+                }
+            }
+        }
+    }
+
+    toggleFlag(screenX, screenY) {
+        if (this.gameState !== "PLAYING") return;
+        
+        const start = (window.size / 2) - (this.board.cellSize * (this.board.size / 2));
+        const gridX = Math.floor((screenX - start) / this.board.cellSize);
+        const gridY = Math.floor((screenY - start) / this.board.cellSize);
+
+        if (this.board.valid(gridX, gridY)) {
+            const cell = this.board.getCell(gridX, gridY);
+            if (cell.covered) {
+                cell.flagged = !cell.flagged;
+                // Optional: play small click sound?
             }
         }
     }
@@ -106,13 +158,43 @@ class Game {
 
         const cell = this.board.getCell(tx, ty);
         if (cell.entity === window.ENEMY) {
-            cell.entity = window.EMPTY;
-            this.board.updateHints(tx, ty, -1);
-            const idx = this.enemies.findIndex(e => e.x === tx && e.y === ty);
-            if (idx !== -1) this.enemies[idx].dead = true;
-            this.createParticles(px, py, window.COLORS.enemy, 15);
-            window.SoundManager.playDamage();
-            this.shake = 5;
+            // Find which enemy occupies this cell
+            const idx = this.enemies.findIndex(e => {
+                // If enemy has getOccupiedCells method (it should), check it
+                if (typeof e.getOccupiedCells === 'function') {
+                    return e.getOccupiedCells().some(c => c.x === tx && c.y === ty);
+                }
+                return e.x === tx && e.y === ty;
+            });
+
+            if (idx !== -1) {
+                const enemy = this.enemies[idx];
+                const died = enemy.takeDamage(1);
+                
+                if (died) {
+                    // Clear all occupied cells
+                    const occupied = enemy.getOccupiedCells();
+                    occupied.forEach(c => {
+                        const cCell = this.board.getCell(c.x, c.y);
+                        cCell.entity = window.EMPTY;
+                        this.board.updateHints(c.x, c.y, -1);
+                    });
+                    
+                    // Particles at center
+                    const start = (window.size / 2) - (this.board.cellSize * (this.board.size / 2));
+                    const px = start + (enemy.x * this.board.cellSize) + (enemy.width * this.board.cellSize / 2);
+                    const py = start + (enemy.y * this.board.cellSize) + (enemy.height * this.board.cellSize / 2);
+
+                    this.createParticles(px, py, enemy.color, 25);
+                    window.SoundManager.playDamage();
+                    this.shake = 5;
+                    this.checkCascade(tx, ty);
+                } else {
+                    // Hit but alive
+                    this.createParticles(px, py, "#fff", 5);
+                    this.shake = 2;
+                }
+            }
         }
         this._processTurn();
     }
@@ -124,6 +206,9 @@ class Game {
         const newX = this.board.playerX + dx;
         const newY = this.board.playerY + dy;
         if (!this.board.valid(newX, newY)) return;
+
+        // Block movement if flagged
+        if (this.board.getCell(newX, newY).flagged) return;
 
         if (this.board.getCell(newX, newY).entity === window.ENEMY) {
             this.gameState = "LOST";
@@ -155,6 +240,7 @@ class Game {
                 const start = (window.size / 2) - (this.board.cellSize * (this.board.size / 2));
                 this.createParticles(start + newX * this.board.cellSize + this.board.cellSize / 2,
                     start + newY * this.board.cellSize + this.board.cellSize / 2, window.COLORS.coin, 10);
+                this.checkCascade(newX, newY);
             }
             this.reveal(newX, newY);
             if (newX === this.board.size - 1 && newY === this.board.size - 1 && this.player.coins >= 3) {
@@ -213,12 +299,49 @@ class Game {
             attempts++;
             const r = Math.floor(Math.random() * this.board.size);
             const c = Math.floor(Math.random() * this.board.size);
+            
+            // Try Ogre Spawn (5% chance, only if space permits)
+            if (Math.random() < 0.1 && this.board.size >= 13) {
+               // Check 2x2 space
+               if (r < this.board.size - 1 && c < this.board.size - 1) {
+                   const cell1 = this.board.getCell(c, r);
+                   const cell2 = this.board.getCell(c+1, r);
+                   const cell3 = this.board.getCell(c, r+1);
+                   const cell4 = this.board.getCell(c+1, r+1);
+                   
+                   if (cell1.entity === window.EMPTY && cell2.entity === window.EMPTY &&
+                       cell3.entity === window.EMPTY && cell4.entity === window.EMPTY &&
+                       !(r < 3 && c < 3)) { // not near player start
+                       
+                       const ogre = new EnemyOgre(c, r);
+                       this.enemies.push(ogre);
+                       // Update all cells
+                       cell1.entity = window.ENEMY;
+                       cell2.entity = window.ENEMY;
+                       cell3.entity = window.ENEMY;
+                       cell4.entity = window.ENEMY;
+                       this.board.updateHints(c, r, 1);
+                       this.board.updateHints(c+1, r, 1);
+                       this.board.updateHints(c, r+1, 1);
+                       this.board.updateHints(c+1, r+1, 1);
+                       
+                       curEnemyCount++; // Counts as 1 enemy? Or multiple? Let's say 1 spawn.
+                       continue;
+                   }
+               }
+            }
+
             if (r < 3 && c < 3) continue;
             if (r > this.board.size - 4 && c > this.board.size - 4) continue;
             const cell = this.board.getCell(c, r);
             if (cell.entity === window.EMPTY) {
                 cell.entity = window.ENEMY;
-                this.enemies.push(new Enemy(c, r));
+                // Randomly spawn Brute (30%) or Basic (70%)
+                if (Math.random() > 0.7) {
+                    this.enemies.push(new EnemyBrute(c, r));
+                } else {
+                    this.enemies.push(new EnemyBasic(c, r));
+                }
                 this.board.updateHints(c, r, 1);
                 curEnemyCount++;
             }

@@ -22,4 +22,7 @@ window.COLORS = {
     coin: "#fcd34d",
     enemy: "#4ade80",
     player: "#60a5fa",
+    flag: "#fca5a5",
+    enemyBrute: "#d946ef",
+    enemyOgre: "#ef4444"
 };
