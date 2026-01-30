@@ -125,8 +125,14 @@ class Game {
             if (!result) return;
 
             if (result.hitPlayer) {
-                this.gameState = "LOST";
+                this.player.health -= 1;
                 this.shake = Math.max(this.shake, result.shake);
+                window.SoundManager.playDamage();
+
+                if (this.player.health <= 0) {
+                    this.gameState = "LOST";
+                    window.SoundManager.playLose();
+                }
             }
             if (result.shake > 0) {
                 this.shake = Math.max(this.shake, result.shake);
@@ -211,9 +217,7 @@ class Game {
         if (this.board.getCell(newX, newY).flagged) return;
 
         if (this.board.getCell(newX, newY).entity === window.ENEMY) {
-            this.gameState = "LOST";
-            window.SoundManager.playDamage();
-            this.shake = 20;
+            this.attack(dx, dy);
             return;
         }
 
